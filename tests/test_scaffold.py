@@ -11,7 +11,7 @@ def test_manifest_and_strings_agree():
     manifest = json.loads((COMP / "manifest.json").read_text())
     assert manifest["domain"] == "watts_radiant"
     assert manifest["config_flow"] is True
-    assert manifest["version"] == "0.3.5"
+    assert manifest["version"] == "0.3.6"
     strings = json.loads((COMP / "strings.json").read_text())
     translations = json.loads((COMP / "translations" / "en.json").read_text())
     assert strings == translations

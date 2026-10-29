@@ -44,9 +44,14 @@ async def async_setup_entry(
 class WattsHomeAwaySensor(CoordinatorEntity[WattsCoordinator], SensorEntity):
     """Home/Away state for one location (awayState 0 = Home).
 
-    Name is "Home/away", not "Mode": "Mode" would be ambiguous
-    next to thermostat Heat/Off mode and schedule mode, while
-    "Home/away" matches the Watts term and its own values exactly.
+    Name is just "Home/away", not "Mode": "Mode" would be
+    ambiguous next to thermostat Heat/Off mode and schedule
+    mode, while "Home/away" matches the Watts term and its
+    own values exactly. No location prefix: the device
+    already identifies the location, and a hardcoded API
+    name (e.g. "801") goes stale when the device is renamed
+    in HA (e.g. to "Powerhouse"), which is exactly what
+    happened with "801 home/away" vs "Powerhouse Away".
     """
 
     def __init__(self, coordinator: WattsCoordinator, location_id: str) -> None:
@@ -54,7 +59,7 @@ class WattsHomeAwaySensor(CoordinatorEntity[WattsCoordinator], SensorEntity):
         self._location_id = location_id
         location = coordinator.locations[location_id]
         self._attr_unique_id = f"{location_id}_home_away"
-        self._attr_name = f"{location.name} home/away"
+        self._attr_name = "Home/away"
         self._attr_device_info = {
             "identifiers": {(DOMAIN, location_id)},
             "name": location.name,
