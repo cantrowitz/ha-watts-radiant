@@ -137,3 +137,14 @@ def test_hvac_action_and_away_mapping():
     assert parse_location(
         {"locationId": "x", "name": "801", "awayState": 1}
     ).home_away == "Away"
+
+def test_manifest_is_hassfest_clean():
+    # hassfest, Oct 29 2026: aiohttp is a Home Assistant core
+    # dependency and must not be listed, and manifest keys
+    # must be domain, name, then alphabetical.
+    manifest = json.loads((COMP / "manifest.json").read_text())
+    keys = list(manifest)
+    assert keys[:2] == ["domain", "name"]
+    assert keys[2:] == sorted(keys[2:])
+    for req in manifest.get("requirements", []):
+        assert not req.startswith("aiohttp"), req
