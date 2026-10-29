@@ -1,0 +1,18 @@
+{
+  "config": {
+    "error": {
+      "cannot_connect": "Could not connect to Watts. Check your connection and try again.",
+      "invalid_auth": "Invalid email or password."
+    },
+    "step": {
+      "user": {
+        "data": {
+          "password": "Password",
+          "username": "Email address"
+        },
+        "description": "Sign in with the email and password you use in the Watts Home app.",
+        "title": "Watts Radiant"
+      }
+    }
+  }
+}
