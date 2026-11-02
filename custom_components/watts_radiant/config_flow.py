@@ -59,3 +59,65 @@ class WattsRadiantConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             ),
             errors=errors,
         )
+
+    async def async_step_reauth(
+        self, entry_data: dict[str, Any]
+    ) -> config_entries.ConfigFlowResult:
+        """Handle reauth: HA starts this when the stored refresh token is rejected.
+
+        The entry being reauthed is identified by the reauth context
+        (falling back to the flow handler, which HA sets to the entry
+        id for reauth flows).
+        """
+        entry_id = (self.context or {}).get("entry_id") or self.handler
+        self._reauth_entry = self.hass.config_entries.async_get_entry(entry_id)
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Re-authenticate with email + password and update the entry's tokens."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            email = user_input[CONF_USERNAME].lower()
+            # Unique id check: refuse if a DIFFERENT entry already
+            # uses this email (the entry being reauthed is exempt).
+            await self.async_set_unique_id(email)
+            for other in self.hass.config_entries.async_entries(DOMAIN):
+                if (
+                    other.entry_id != self._reauth_entry.entry_id
+                    and other.unique_id == email
+                ):
+                    return self.async_abort(reason="already_configured")
+
+            session = async_get_clientsession(self.hass)
+            client = WattsAuthClient(session)
+            try:
+                tokens = await client.authenticate(
+                    user_input[CONF_USERNAME], user_input[CONF_PASSWORD]
+                )
+            except WattsInvalidAuth:
+                errors["base"] = "invalid_auth"
+            except WattsAuthError:
+                errors["base"] = "cannot_connect"
+            else:
+                # Password is deliberately NOT stored: only the new
+                # tokens, which the coordinator refreshes from here on.
+                return self.async_update_reload_and_abort(
+                    self._reauth_entry,
+                    data_updates={
+                        CONF_USERNAME: user_input[CONF_USERNAME],
+                        "tokens": tokens.to_dict(),
+                    },
+                )
+
+        return self.async_show_form(
+            step_id="reauth_confirm",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_USERNAME): str,
+                    vol.Required(CONF_PASSWORD): str,
+                }
+            ),
+            errors=errors,
+        )

@@ -169,13 +169,6 @@ def test_schedule_parsing_and_heat_payload():
     assert temp_settings_payload(84, False) == {"Settings": {"Heat": 84}}
 
 
-def test_away_state_payload():
-    from watts_radiant.api import away_state_payload
-
-    assert away_state_payload(True) == {"awayState": 1}
-    assert away_state_payload(False) == {"awayState": 0}
-
-
 def test_heating_requires_op_and_current_below_target():
     # Paired on/off captures Oct 29, 2026: Op Heat in both,
     # floor 77, target 78 => heating, target 76 => idle.

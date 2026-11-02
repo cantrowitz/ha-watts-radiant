@@ -25,9 +25,8 @@ async def async_setup_entry(
 ) -> None:
     """Set up floor/room temperature sensors + Home/away sensor.
 
-    The sensor is the explicit label for the Away mode switch
-    in switch.py: the switch toggles the mode, the sensor states
-    it as "Home" or "Away". Reusing the original sensor unique_id
+    The Home/away sensor states a location's mode as "Home" or
+    "Away" (read-only). Reusing the original sensor unique_id
     ("<location_id>_home_away") revives the 0.2.0 sensor entity
     in HA instead of creating yet another orphan.
     """

@@ -26,7 +26,7 @@ _pkg = types.ModuleType("watts_radiant")
 _pkg.__path__ = [str(COMP)]
 sys.modules["watts_radiant"] = _pkg
 
-from watts_radiant.api import away_state_payload, temp_settings_payload
+from watts_radiant.api import temp_settings_payload
 from watts_radiant.const import DOMAIN, PLATFORMS
 from watts_radiant.models import parse_device, parse_location
 
@@ -69,8 +69,6 @@ def test_brand_icons_are_256_and_512():
 def test_control_payloads():
     assert temp_settings_payload(66, True) == {"Settings": {"HeatHold": 66}}
     assert temp_settings_payload(84, False) == {"Settings": {"Heat": 84}}
-    assert away_state_payload(True) == {"awayState": 1}
-    assert away_state_payload(False) == {"awayState": 0}
 
 
 def _device(**overrides):

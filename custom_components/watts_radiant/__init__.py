@@ -12,7 +12,7 @@ from .coordinator import WattsCoordinator
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Watts Home from a config entry."""
-    coordinator = WattsCoordinator(hass, dict(entry.data))
+    coordinator = WattsCoordinator(hass, entry)
     await coordinator.async_config_entry_first_refresh()
     # Register location parent devices FIRST, before any platform
     # registers a thermostat as a main device: a child conversion

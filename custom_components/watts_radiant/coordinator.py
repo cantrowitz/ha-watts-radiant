@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import timedelta
 
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
@@ -16,14 +17,17 @@ from .models import WattsDevice, WattsLocation, parse_device, parse_location
 class WattsCoordinator(DataUpdateCoordinator[dict[str, WattsDevice]]):
     """Poll Watts locations/devices, refreshing tokens as needed."""
 
-    def __init__(self, hass: HomeAssistant, entry_data: dict) -> None:
+    def __init__(self, hass: HomeAssistant, entry) -> None:
         super().__init__(
             hass,
             logger=__import__("logging").getLogger(__name__),
             name=DOMAIN,
             update_interval=timedelta(seconds=60),
         )
-        self._entry_data = entry_data
+        # The config entry itself (not a copy of its data): refreshed
+        # tokens must be written back via async_update_entry so they
+        # survive a Home Assistant restart.
+        self.entry = entry
         self._tokens = None
         self.location_name = "801"
         self.locations: dict[str, WattsLocation] = {}
@@ -35,16 +39,29 @@ class WattsCoordinator(DataUpdateCoordinator[dict[str, WattsDevice]]):
     def tokens(self):
         return self._tokens
 
+    def _persist_tokens(self) -> None:
+        """Write the current tokens to the config entry.
+
+        Mutating a copy of entry.data is not enough: HA only
+        persists entry data when async_update_entry is called.
+        Without this, a restart reloads the original tokens, and
+        once the stored refresh token expires or is rotated the
+        integration can never authenticate again (the password
+        is deliberately not stored).
+        """
+        self.hass.config_entries.async_update_entry(
+            self.entry, data={**self.entry.data, "tokens": self._tokens.to_dict()}
+        )
+
     async def _ensure_tokens(self, session):
         from .api import Tokens
 
         if self._tokens is None:
-            self._tokens = Tokens.from_dict(self._entry_data["tokens"])
+            self._tokens = Tokens.from_dict(self.entry.data["tokens"])
         if self._tokens.expired:
             auth = WattsAuthClient(session)
             self._tokens = await auth.refresh(self._tokens.refresh_token)
-            # Persist refreshed tokens back to the config entry.
-            self._entry_data["tokens"] = self._tokens.to_dict()
+            self._persist_tokens()
 
     async def async_set_hvac_mode(self, device_id: str, hvac_mode: str) -> None:
         """Set a thermostat's mode via the API, then re-poll."""
@@ -57,7 +74,7 @@ class WattsCoordinator(DataUpdateCoordinator[dict[str, WattsDevice]]):
         except WattsInvalidAuth:
             auth = WattsAuthClient(session)
             self._tokens = await auth.refresh(self._tokens.refresh_token)
-            self._entry_data["tokens"] = self._tokens.to_dict()
+            self._persist_tokens()
             api = WattsApiClient(session, self._tokens)
             await api.set_device_mode(device_id, mode)
         await self.async_refresh()
@@ -74,7 +91,7 @@ class WattsCoordinator(DataUpdateCoordinator[dict[str, WattsDevice]]):
         except WattsInvalidAuth:
             auth = WattsAuthClient(session)
             self._tokens = await auth.refresh(self._tokens.refresh_token)
-            self._entry_data["tokens"] = self._tokens.to_dict()
+            self._persist_tokens()
             api = WattsApiClient(session, self._tokens)
             await api.set_device_temperature(device_id, temperature, schedule_enabled)
         await self.async_refresh()
@@ -89,7 +106,7 @@ class WattsCoordinator(DataUpdateCoordinator[dict[str, WattsDevice]]):
         except WattsInvalidAuth:
             auth = WattsAuthClient(session)
             self._tokens = await auth.refresh(self._tokens.refresh_token)
-            self._entry_data["tokens"] = self._tokens.to_dict()
+            self._persist_tokens()
             api = WattsApiClient(session, self._tokens)
             await api.cancel_device_hold(device_id)
         await self.async_refresh()
@@ -104,24 +121,9 @@ class WattsCoordinator(DataUpdateCoordinator[dict[str, WattsDevice]]):
         except WattsInvalidAuth:
             auth = WattsAuthClient(session)
             self._tokens = await auth.refresh(self._tokens.refresh_token)
-            self._entry_data["tokens"] = self._tokens.to_dict()
+            self._persist_tokens()
             api = WattsApiClient(session, self._tokens)
             await api.set_schedule_enabled(device_id, enabled)
-        await self.async_refresh()
-
-    async def async_set_away(self, location_id: str, away: bool) -> None:
-        """Toggle a location's Home/Away state via the API, then re-poll."""
-        session = async_get_clientsession(self.hass)
-        await self._ensure_tokens(session)
-        api = WattsApiClient(session, self._tokens)
-        try:
-            await api.set_location_away_state(location_id, away)
-        except WattsInvalidAuth:
-            auth = WattsAuthClient(session)
-            self._tokens = await auth.refresh(self._tokens.refresh_token)
-            self._entry_data["tokens"] = self._tokens.to_dict()
-            api = WattsApiClient(session, self._tokens)
-            await api.set_location_away_state(location_id, away)
         await self.async_refresh()
 
     async def _async_update_data(self) -> dict[str, WattsDevice]:
@@ -136,7 +138,7 @@ class WattsCoordinator(DataUpdateCoordinator[dict[str, WattsDevice]]):
                 # call; refresh once and retry.
                 auth = WattsAuthClient(session)
                 self._tokens = await auth.refresh(self._tokens.refresh_token)
-                self._entry_data["tokens"] = self._tokens.to_dict()
+                self._persist_tokens()
                 api = WattsApiClient(session, self._tokens)
                 locations = await api.get_locations()
 
@@ -159,6 +161,9 @@ class WattsCoordinator(DataUpdateCoordinator[dict[str, WattsDevice]]):
                     devices[device.device_id] = device
             return devices
         except WattsInvalidAuth as err:
-            raise UpdateFailed(f"Watts authentication failed: {err}") from err
+            # Auth is rejected: trigger HA's reauth flow instead of
+            # a plain update failure, so the user can re-enter
+            # credentials without removing the integration.
+            raise ConfigEntryAuthFailed(f"Watts authentication failed: {err}") from err
         except Exception as err:  # noqa: BLE001
             raise UpdateFailed(f"Watts update failed: {err}") from err

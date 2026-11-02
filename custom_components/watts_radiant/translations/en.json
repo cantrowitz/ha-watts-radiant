@@ -12,7 +12,18 @@
         },
         "description": "Sign in with the email and password you use in the Watts Home app.",
         "title": "Watts Radiant"
+      },
+      "reauth_confirm": {
+        "data": {
+          "password": "Password",
+          "username": "Email address"
+        },
+        "description": "Your Watts login is no longer working. Sign in again with the email and password you use in the Watts Home app.",
+        "title": "Re-authenticate Watts Radiant"
       }
+    },
+    "abort": {
+      "already_configured": "This Watts account is already set up in Home Assistant."
     }
   }
 }
