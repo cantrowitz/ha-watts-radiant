@@ -449,12 +449,22 @@ class WattsAuthClient:
                     "x-ms-lib-capability": "retry-after, h429",
                 },
             )
-            data = resp.json()
-            if resp.status_code != 200:
+            # Status first, before parsing the body: an error page
+            # without a JSON body must take the error path, not crash
+            # in resp.json(). Only a rejected grant (400/401) means the
+            # refresh token itself is bad; any other status (5xx, 429,
+            # ...) is transient and must NOT force re-authentication.
+            if resp.status_code in (400, 401):
                 _LOGGER.warning("Watts token refresh failed: HTTP %s", resp.status_code)
                 raise WattsInvalidAuth(
                     f"Watts token refresh failed: HTTP {resp.status_code}"
                 )
+            if resp.status_code != 200:
+                _LOGGER.warning("Watts token refresh failed: HTTP %s", resp.status_code)
+                raise WattsAuthError(
+                    f"Watts token refresh failed: HTTP {resp.status_code}"
+                )
+            data = resp.json()
             return Tokens.from_token_response(data)
 
 

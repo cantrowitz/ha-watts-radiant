@@ -23,7 +23,8 @@
       }
     },
     "abort": {
-      "already_configured": "This Watts account is already set up in Home Assistant."
+      "already_configured": "This Watts account is already set up in Home Assistant.",
+      "wrong_account": "The email entered does not match the Watts account this integration was set up with. Please sign in with the original account."
     }
   }
 }

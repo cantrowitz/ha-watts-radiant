@@ -71,6 +71,12 @@ class _ConfigFlow:
     def _abort_if_unique_id_configured(self):
         pass
 
+    def _abort_if_unique_id_mismatch(self, *, reason):
+        # Mirror of real HA: raises when the flow's unique id differs
+        # from the entry being re-authenticated.
+        if getattr(self, "_unique_id", None) != self._reauth_entry.unique_id:
+            raise _AbortFlow(reason)
+
     def async_show_form(self, *, step_id, data_schema, errors):
         return {"type": "form", "step_id": step_id, "errors": errors}
 
@@ -87,6 +93,14 @@ class _ConfigFlow:
             "entry": entry,
             "data_updates": data_updates,
         }
+
+
+class _AbortFlow(Exception):
+    """Stand-in for HA's AbortFlow, carrying the abort reason."""
+
+    def __init__(self, reason):
+        super().__init__(reason)
+        self.reason = reason
 
 
 class _DataUpdateCoordinator:
@@ -157,12 +171,19 @@ _module(
 _module("homeassistant.components")
 _module("homeassistant.components.switch", SwitchEntity=_SwitchEntity)
 
-from watts_radiant.api import Tokens, WattsApiClient, WattsInvalidAuth
+from watts_radiant.api import (
+    Tokens,
+    WattsApiClient,
+    WattsAuthClient,
+    WattsAuthError,
+    WattsInvalidAuth,
+)
 from watts_radiant.config_flow import WattsRadiantConfigFlow
 from watts_radiant.coordinator import WattsCoordinator
 from watts_radiant import switch as switch_mod
 from watts_radiant import coordinator as coord_mod
 from watts_radiant import config_flow as flow_mod
+from watts_radiant import api as api_mod
 
 
 def _old_tokens():
@@ -368,28 +389,123 @@ def test_reauth_confirm_invalid_auth_shows_error(monkeypatch):
     assert result["errors"] == {"base": "invalid_auth"}
 
 
-def test_reauth_confirm_refuses_other_entry_email(monkeypatch):
+def test_reauth_confirm_refuses_different_account():
+    """Reauth with another account's email aborts as wrong_account."""
     hass = _FakeHass()
     entry = _ConfigEntry(
         "e1",
         {"username": "a@example.com", "tokens": _old_tokens()},
         unique_id="a@example.com",
     )
-    other = _ConfigEntry(
-        "e2",
-        {"username": "b@example.com", "tokens": _old_tokens()},
-        unique_id="b@example.com",
-    )
-    hass.config_entries.entries = {"e1": entry, "e2": other}
+    hass.config_entries.entries = {"e1": entry}
     flow = _reauth_flow(hass, entry)
     _run(flow.async_step_reauth({"username": "a@example.com"}))
-    result = _run(
-        flow.async_step_reauth_confirm(
-            {"username": "b@example.com", "password": "pw"}
+    try:
+        _run(
+            flow.async_step_reauth_confirm(
+                {"username": "b@example.com", "password": "pw"}
+            )
         )
+    except _AbortFlow as err:
+        assert err.reason == "wrong_account"
+    else:
+        raise AssertionError("expected wrong_account abort")
+
+
+def _refresh_with_status(monkeypatch, status_code, json_raises=False):
+    """Run WattsAuthClient.refresh against a fake token endpoint."""
+
+    class FakeResp:
+        def __init__(self):
+            self.status_code = status_code
+
+        def json(self):
+            if json_raises:
+                raise ValueError("not JSON")
+            return {}
+
+    class FakeCurlSession:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def post(self, *args, **kwargs):
+            return FakeResp()
+
+    monkeypatch.setattr(api_mod, "CurlSession", FakeCurlSession)
+    return _run(WattsAuthClient().refresh("some-refresh-token"))
+
+
+def test_refresh_rejected_grant_is_invalid_auth(monkeypatch):
+    """Only 400/401 from the token endpoint mean the grant is rejected."""
+    for status_code in (400, 401):
+        try:
+            _refresh_with_status(monkeypatch, status_code)
+        except WattsInvalidAuth:
+            pass
+        else:
+            raise AssertionError(f"expected WattsInvalidAuth for {status_code}")
+
+
+def test_refresh_transient_error_is_not_invalid_auth(monkeypatch):
+    """5xx/429 from the token endpoint must not force re-authentication."""
+    for status_code in (429, 500, 502, 503):
+        try:
+            _refresh_with_status(monkeypatch, status_code)
+        except WattsInvalidAuth:
+            raise AssertionError(
+                f"transient {status_code} must not raise WattsInvalidAuth"
+            )
+        except WattsAuthError:
+            pass
+        else:
+            raise AssertionError(f"expected WattsAuthError for {status_code}")
+
+
+def test_refresh_non_json_error_page_is_auth_error(monkeypatch):
+    """Status is checked before json(): a non-JSON error page is WattsAuthError."""
+    try:
+        _refresh_with_status(monkeypatch, 500, json_raises=True)
+    except WattsInvalidAuth:
+        raise AssertionError("non-JSON 500 must not raise WattsInvalidAuth")
+    except WattsAuthError:
+        pass
+    else:
+        raise AssertionError("expected WattsAuthError")
+
+
+def test_transient_refresh_failure_is_update_failed_not_reauth(monkeypatch):
+    """A transient refresh failure retries next poll instead of reauth."""
+    hass = _FakeHass()
+    entry = _ConfigEntry(
+        "e1",
+        {"username": "a@example.com", "tokens": _old_tokens()},
+        unique_id="a@example.com",
     )
-    assert result["type"] == "abort"
-    assert result["reason"] == "already_configured"
+    hass.config_entries.entries = {"e1": entry}
+
+    class TransientFailAuth:
+        def __init__(self, session):
+            pass
+
+        async def refresh(self, refresh_token):
+            raise WattsAuthError("token endpoint 500")
+
+    monkeypatch.setattr(coord_mod, "WattsAuthClient", TransientFailAuth)
+    coord = WattsCoordinator(hass, entry)
+    try:
+        _run(coord._async_update_data())
+    except _ConfigEntryAuthFailed:
+        raise AssertionError("transient failure must not raise ConfigEntryAuthFailed")
+    except _UpdateFailed:
+        pass
+    else:
+        raise AssertionError("expected UpdateFailed")
 
 
 def test_switch_setup_creates_no_away_switch():

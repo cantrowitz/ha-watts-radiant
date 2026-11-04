@@ -80,15 +80,12 @@ class WattsRadiantConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
         if user_input is not None:
             email = user_input[CONF_USERNAME].lower()
-            # Unique id check: refuse if a DIFFERENT entry already
-            # uses this email (the entry being reauthed is exempt).
+            # The reauth must be for the SAME account: abort when the
+            # email does not match the entry being re-authenticated,
+            # so a different account's tokens never land on this entry
+            # (which would keep the old unique id and devices).
             await self.async_set_unique_id(email)
-            for other in self.hass.config_entries.async_entries(DOMAIN):
-                if (
-                    other.entry_id != self._reauth_entry.entry_id
-                    and other.unique_id == email
-                ):
-                    return self.async_abort(reason="already_configured")
+            self._abort_if_unique_id_mismatch(reason="wrong_account")
 
             session = async_get_clientsession(self.hass)
             client = WattsAuthClient(session)
