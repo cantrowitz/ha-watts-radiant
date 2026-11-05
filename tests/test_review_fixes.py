@@ -20,6 +20,11 @@ import types
 from pathlib import Path
 from types import SimpleNamespace
 
+# The real curl_cffi exception class: the fix catches exactly this,
+# so the fakes raise it — a stub class would not prove the except
+# clause matches. curl_cffi is a manifest requirement.
+from curl_cffi.requests.exceptions import RequestException as CurlRequestException
+
 COMP = Path(__file__).resolve().parents[1] / "custom_components" / "watts_radiant"
 
 _pkg = types.ModuleType("watts_radiant")
@@ -541,3 +546,208 @@ def test_away_write_call_is_gone():
     import watts_radiant.api as api_mod
 
     assert not hasattr(api_mod, "away_state_payload")
+
+
+# --- Tests for the Nov 5, 2026 HACS review fix (frenck, PR #12915) ---
+#
+# authenticate() and exchange_code() did not handle network failures,
+# and exchange_code() called resp.json() before checking the status.
+# A DNS failure, timeout or connection reset from curl_cffi, or an
+# error page without a JSON body, therefore ended in an "Unknown
+# error" traceback instead of cannot_connect, in both the setup form
+# and the reauth form. The fix catches curl_cffi's RequestException
+# (and the ValueError from a non-JSON body) around the requests in
+# those two methods and re-raises them as WattsAuthError, and checks
+# resp.status_code before resp.json() in exchange_code().
+
+
+class _FakeB2CResp:
+    def __init__(self, status_code=200, text="", json_data=None, json_raises=False):
+        self.status_code = status_code
+        self.text = text
+        self.headers = {}
+        self._json_data = json_data
+        self._json_raises = json_raises
+
+    def json(self):
+        if self._json_raises:
+            raise ValueError("not JSON")
+        return self._json_data
+
+
+class _FakeCurlSession:
+    """Fake curl_cffi session: get/post return a resp or raise."""
+
+    def __init__(self, *, get=None, post=None, **kwargs):
+        self._get = get
+        self._post = post
+        self.cookies = {}
+        self.closed = False
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        return False
+
+    async def close(self):
+        self.closed = True
+
+    async def get(self, *args, **kwargs):
+        if isinstance(self._get, Exception):
+            raise self._get
+        return self._get
+
+    async def post(self, *args, **kwargs):
+        if isinstance(self._post, Exception):
+            raise self._post
+        return self._post
+
+
+_B2C_PAGE = (
+    'var SETTINGS = {"csrf": "fake-csrf", '
+    '"transId": "StateProperties=fake-trans"};'
+)
+
+
+def test_authenticate_authorize_network_failure_is_auth_error(monkeypatch):
+    """A DNS failure on the authorize page is cannot_connect, not Unknown error."""
+    fake = _FakeCurlSession(get=CurlRequestException("DNS failure"))
+    monkeypatch.setattr(api_mod, "CurlSession", lambda **kwargs: fake)
+    try:
+        _run(WattsAuthClient().authenticate("a@example.com", "pw"))
+    except WattsInvalidAuth:
+        raise AssertionError("network failure must not be invalid_auth")
+    except WattsAuthError:
+        pass
+    else:
+        raise AssertionError("expected WattsAuthError")
+
+
+def test_authenticate_signin_network_failure_is_auth_error(monkeypatch):
+    """A connection reset on the SelfAsserted POST is WattsAuthError too."""
+    fake = _FakeCurlSession(
+        get=_FakeB2CResp(200, text=_B2C_PAGE),
+        post=CurlRequestException("connection reset"),
+    )
+    monkeypatch.setattr(api_mod, "CurlSession", lambda **kwargs: fake)
+    try:
+        _run(WattsAuthClient().authenticate("a@example.com", "pw"))
+    except WattsInvalidAuth:
+        raise AssertionError("network failure must not be invalid_auth")
+    except WattsAuthError:
+        pass
+    else:
+        raise AssertionError("expected WattsAuthError")
+
+
+def test_exchange_code_network_failure_is_auth_error(monkeypatch):
+    """A timeout on the token exchange is WattsAuthError, not Unknown error."""
+    fake = _FakeCurlSession(post=CurlRequestException("timeout"))
+    monkeypatch.setattr(api_mod, "CurlSession", lambda **kwargs: fake)
+    try:
+        _run(WattsAuthClient().exchange_code("code", "verifier"))
+    except WattsInvalidAuth:
+        raise AssertionError("network failure must not be invalid_auth")
+    except WattsAuthError:
+        pass
+    else:
+        raise AssertionError("expected WattsAuthError")
+
+
+def test_exchange_code_non_json_body_is_auth_error(monkeypatch):
+    """A 200 with a non-JSON body must not crash in resp.json()."""
+    fake = _FakeCurlSession(
+        post=_FakeB2CResp(200, json_raises=True),
+    )
+    monkeypatch.setattr(api_mod, "CurlSession", lambda **kwargs: fake)
+    try:
+        _run(WattsAuthClient().exchange_code("code", "verifier"))
+    except WattsAuthError:
+        pass
+    else:
+        raise AssertionError("expected WattsAuthError")
+
+
+def test_exchange_code_non_json_error_page_is_auth_error(monkeypatch):
+    """Status is checked before json(): a non-JSON 500 is WattsAuthError."""
+    fake = _FakeCurlSession(
+        post=_FakeB2CResp(500, json_raises=True),
+    )
+    monkeypatch.setattr(api_mod, "CurlSession", lambda **kwargs: fake)
+    try:
+        _run(WattsAuthClient().exchange_code("code", "verifier"))
+    except WattsAuthError:
+        pass
+    else:
+        raise AssertionError("expected WattsAuthError")
+
+
+def test_exchange_code_success_still_returns_tokens(monkeypatch):
+    """The status-first reorder must not break the happy path."""
+    fake = _FakeCurlSession(
+        post=_FakeB2CResp(
+            200,
+            json_data={
+                "access_token": "acc",
+                "refresh_token": "ref",
+                "expires_in": 900,
+            },
+        ),
+    )
+    monkeypatch.setattr(api_mod, "CurlSession", lambda **kwargs: fake)
+    tokens = _run(WattsAuthClient().exchange_code("code", "verifier"))
+    assert tokens.access_token == "acc"
+    assert tokens.refresh_token == "ref"
+    assert tokens.expires_at > time.time()
+    assert fake.closed  # own session is closed by exchange_code
+
+
+def test_setup_network_failure_shows_cannot_connect(monkeypatch):
+    """Setup form: a network failure during sign-in shows cannot_connect."""
+    hass = _FakeHass()
+
+    class NetworkFailAuth:
+        def __init__(self, session):
+            pass
+
+        async def authenticate(self, username, password):
+            raise WattsAuthError("DNS failure")
+
+    monkeypatch.setattr(flow_mod, "WattsAuthClient", NetworkFailAuth)
+    flow = WattsRadiantConfigFlow()
+    flow.hass = hass
+    result = _run(
+        flow.async_step_user({"username": "a@example.com", "password": "pw"})
+    )
+    assert result["type"] == "form"
+    assert result["errors"] == {"base": "cannot_connect"}
+
+
+def test_reauth_network_failure_shows_cannot_connect(monkeypatch):
+    """Reauth form: a network failure during sign-in shows cannot_connect."""
+    hass = _FakeHass()
+    entry = _ConfigEntry(
+        "e1",
+        {"username": "a@example.com", "tokens": _old_tokens()},
+        unique_id="a@example.com",
+    )
+    hass.config_entries.entries = {"e1": entry}
+
+    class NetworkFailAuth:
+        def __init__(self, session):
+            pass
+
+        async def authenticate(self, username, password):
+            raise WattsAuthError("DNS failure")
+
+    monkeypatch.setattr(flow_mod, "WattsAuthClient", NetworkFailAuth)
+    flow = _reauth_flow(hass, entry)
+    _run(flow.async_step_reauth({"username": "a@example.com"}))
+    result = _run(
+        flow.async_step_reauth_confirm(
+            {"username": "a@example.com", "password": "pw"}
+        )
+    )
+    assert result["type"] == "form"
+    assert result["errors"] == {"base": "cannot_connect"}

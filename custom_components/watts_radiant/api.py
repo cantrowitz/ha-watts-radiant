@@ -64,8 +64,12 @@ import aiohttp
 
 try:
     from curl_cffi.requests import AsyncSession as CurlSession
-except ImportError:  # pragma: no cover
+    from curl_cffi.requests.exceptions import RequestException as CurlRequestException
+except ImportError:  # pragma: no cover - curl_cffi is a manifest requirement
     CurlSession = None
+
+    class CurlRequestException(Exception):
+        """Placeholder when curl_cffi is absent; never raised in practice."""
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -300,15 +304,24 @@ class WattsAuthClient:
 
         async with CurlSession(impersonate="chrome") as session:
             # 1. Authorize page: cookies + csrf/transId.
-            resp = await session.get(
-                authorize_url,
-                headers={
-                    "User-Agent": APP_USER_AGENT,
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                    "Accept-Language": "en-US,en;q=0.9",
-                    "X-Requested-With": "com.watts.home",
-                },
-            )
+            # A network failure here (DNS, timeout, reset) is a
+            # connectivity problem, not bad credentials: map it to
+            # WattsAuthError so the config flow shows cannot_connect
+            # instead of an "Unknown error" traceback.
+            try:
+                resp = await session.get(
+                    authorize_url,
+                    headers={
+                        "User-Agent": APP_USER_AGENT,
+                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                        "Accept-Language": "en-US,en;q=0.9",
+                        "X-Requested-With": "com.watts.home",
+                    },
+                )
+            except CurlRequestException as err:
+                raise WattsAuthError(
+                    "Watts authorize request failed"
+                ) from err
             if resp.status_code != 200:
                 _LOGGER.warning("Watts authorize failed: HTTP %s", resp.status_code)
                 raise WattsAuthError(f"B2C authorize failed: HTTP {resp.status_code}")
@@ -327,24 +340,29 @@ class WattsAuthClient:
                 f"https://login.watts.io/{tenant}/{B2C_POLICY}/SelfAsserted"
                 f"?tx={trans_id}&p={B2C_POLICY}"
             )
-            resp = await session.post(
-                self_asserted_url,
-                data={
-                    "request_type": "RESPONSE",
-                    "signInName": email,
-                    "password": password,
-                },
-                headers={
-                    "User-Agent": APP_USER_AGENT,
-                    "X-CSRF-TOKEN": csrf,
-                    "X-Requested-With": "XMLHttpRequest",
-                    "Accept": "application/json, text/javascript, */*; q=0.01",
-                    "Accept-Language": "en-US,en;q=0.9",
-                    "Origin": "https://login.watts.io",
-                    "Referer": authorize_url,
-                    **APP_FETCH_XHR,
-                },
-            )
+            try:
+                resp = await session.post(
+                    self_asserted_url,
+                    data={
+                        "request_type": "RESPONSE",
+                        "signInName": email,
+                        "password": password,
+                    },
+                    headers={
+                        "User-Agent": APP_USER_AGENT,
+                        "X-CSRF-TOKEN": csrf,
+                        "X-Requested-With": "XMLHttpRequest",
+                        "Accept": "application/json, text/javascript, */*; q=0.01",
+                        "Accept-Language": "en-US,en;q=0.9",
+                        "Origin": "https://login.watts.io",
+                        "Referer": authorize_url,
+                        **APP_FETCH_XHR,
+                    },
+                )
+            except CurlRequestException as err:
+                raise WattsAuthError(
+                    "Watts sign-in request failed"
+                ) from err
             if resp.status_code != 200:
                 # B2C returning non-200 here is a credential rejection
                 # in practice; keep the invalid_auth mapping.
@@ -358,18 +376,23 @@ class WattsAuthClient:
 
             # 3. Confirmed step: 302 Location is the msal://auth URL;
             # fall back to the Object-moved HTML href.
-            resp = await session.get(
-                build_confirmed_url(csrf, trans_id),
-                allow_redirects=False,
-                headers={
-                    "User-Agent": APP_USER_AGENT,
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                    "Accept-Language": "en-US,en;q=0.9",
-                    "Referer": authorize_url,
-                    "X-Requested-With": "com.watts.home",
-                    **APP_FETCH_DOC,
-                },
-            )
+            try:
+                resp = await session.get(
+                    build_confirmed_url(csrf, trans_id),
+                    allow_redirects=False,
+                    headers={
+                        "User-Agent": APP_USER_AGENT,
+                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                        "Accept-Language": "en-US,en;q=0.9",
+                        "Referer": authorize_url,
+                        "X-Requested-With": "com.watts.home",
+                        **APP_FETCH_DOC,
+                    },
+                )
+            except CurlRequestException as err:
+                raise WattsAuthError(
+                    "Watts confirmed request failed"
+                ) from err
             location = resp.headers.get("Location", "")
             if location.startswith(B2C_REDIRECT_URI):
                 code = extract_code_from_redirect(location)
@@ -392,33 +415,46 @@ class WattsAuthClient:
         if own_session:
             session = CurlSession(impersonate="chrome")
         try:
-            resp = await session.post(
-                f"{B2C_AUTHORITY}/oauth2/v2.0/token?haschrome=1",
-                data={
-                    "client_id": B2C_CLIENT_ID,
-                    "scope": B2C_SCOPE,
-                    "client_info": "1",
-                    "grant_type": "authorization_code",
-                    "code": code,
-                    "redirect_uri": B2C_REDIRECT_URI,
-                    "code_verifier": verifier,
-                },
-                headers={
-                    "Accept": "application/json",
-                    "client-request-id": client_request_id or str(uuid.uuid4()),
-                    "return-client-request-id": "true",
-                    "x-client-SKU": "MSAL.Xamarin.Android",
-                    "x-client-Ver": "4.66.1.0",
-                    "x-client-OS": "37",
-                    "x-ms-lib-capability": "retry-after, h429",
-                },
-            )
-            data = resp.json()
+            try:
+                resp = await session.post(
+                    f"{B2C_AUTHORITY}/oauth2/v2.0/token?haschrome=1",
+                    data={
+                        "client_id": B2C_CLIENT_ID,
+                        "scope": B2C_SCOPE,
+                        "client_info": "1",
+                        "grant_type": "authorization_code",
+                        "code": code,
+                        "redirect_uri": B2C_REDIRECT_URI,
+                        "code_verifier": verifier,
+                    },
+                    headers={
+                        "Accept": "application/json",
+                        "client-request-id": client_request_id or str(uuid.uuid4()),
+                        "return-client-request-id": "true",
+                        "x-client-SKU": "MSAL.Xamarin.Android",
+                        "x-client-Ver": "4.66.1.0",
+                        "x-client-OS": "37",
+                        "x-ms-lib-capability": "retry-after, h429",
+                    },
+                )
+            except CurlRequestException as err:
+                raise WattsAuthError(
+                    "Watts token exchange request failed"
+                ) from err
+            # Status first, before parsing the body: an error page
+            # without a JSON body must take the error path, not crash
+            # in resp.json() (same pattern as refresh()).
             if resp.status_code != 200:
                 _LOGGER.warning("Watts token exchange failed: HTTP %s", resp.status_code)
                 raise WattsAuthError(
                     f"B2C token exchange failed: HTTP {resp.status_code}"
                 )
+            try:
+                data = resp.json()
+            except ValueError as err:
+                raise WattsAuthError(
+                    "B2C token exchange returned a non-JSON body"
+                ) from err
             return Tokens.from_token_response(data)
         finally:
             if own_session:
