@@ -43,7 +43,9 @@ class WattsClimate(CoordinatorEntity[WattsCoordinator], ClimateEntity):
 
     _attr_temperature_unit = UnitOfTemperature.FAHRENHEIT
     _attr_hvac_modes = [HVACMode.OFF, HVACMode.HEAT]
-    _attr_supported_features = ClimateEntityFeature.TARGET_TEMPERATURE
+    _attr_supported_features = (
+        ClimateEntityFeature.TARGET_TEMPERATURE | ClimateEntityFeature.PRESET_MODE
+    )
 
     def __init__(self, coordinator: WattsCoordinator, device_id: str) -> None:
         super().__init__(coordinator)

@@ -14,9 +14,11 @@ stubs). Only behavior is asserted, never stub internals.
 """
 
 import asyncio
+import json
 import sys
 import time
 import types
+from enum import IntFlag
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -154,7 +156,11 @@ ha.config_entries = ha_config_entries
 _module("homeassistant.core", HomeAssistant=_HomeAssistant)
 _module("homeassistant.exceptions", ConfigEntryAuthFailed=_ConfigEntryAuthFailed)
 _module(
-    "homeassistant.const", CONF_USERNAME="username", CONF_PASSWORD="password"
+    "homeassistant.const",
+    CONF_USERNAME="username",
+    CONF_PASSWORD="password",
+    ATTR_TEMPERATURE="temperature",
+    UnitOfTemperature=SimpleNamespace(FAHRENHEIT="°F", CELSIUS="°C"),
 )
 _module("homeassistant.helpers")
 _module(
@@ -176,6 +182,33 @@ _module(
 _module("homeassistant.components")
 _module("homeassistant.components.switch", SwitchEntity=_SwitchEntity)
 
+
+class _ClimateEntity:
+    pass
+
+
+class _ClimateEntityFeature(IntFlag):
+    """Mirror of HA's ClimateEntityFeature flag values."""
+
+    TARGET_TEMPERATURE = 1
+    TARGET_TEMPERATURE_RANGE = 2
+    TARGET_HUMIDITY = 4
+    FAN_MODE = 8
+    PRESET_MODE = 16
+    SWING_MODE = 32
+    AUX_HEAT = 64
+    TURN_ON = 128
+    TURN_OFF = 256
+
+
+_module("homeassistant.components.climate", ClimateEntity=_ClimateEntity)
+_module(
+    "homeassistant.components.climate.const",
+    ClimateEntityFeature=_ClimateEntityFeature,
+    HVACAction=SimpleNamespace(HEATING="heating", IDLE="idle", OFF="off"),
+    HVACMode=SimpleNamespace(OFF="off", HEAT="heat"),
+)
+
 from watts_radiant.api import (
     Tokens,
     WattsApiClient,
@@ -185,6 +218,7 @@ from watts_radiant.api import (
 )
 from watts_radiant.config_flow import WattsRadiantConfigFlow
 from watts_radiant.coordinator import WattsCoordinator
+from watts_radiant.climate import WattsClimate
 from watts_radiant import switch as switch_mod
 from watts_radiant import coordinator as coord_mod
 from watts_radiant import config_flow as flow_mod
@@ -751,3 +785,31 @@ def test_reauth_network_failure_shows_cannot_connect(monkeypatch):
     )
     assert result["type"] == "form"
     assert result["errors"] == {"base": "cannot_connect"}
+
+
+# --- Tests for the Nov 5, 2026 HACS review fix, round 4 (frenck, PR #12915) ---
+#
+# 1. The climate entity implements presets but did not declare
+#    ClimateEntityFeature.PRESET_MODE, so HA hid the presets and
+#    rejected climate.set_preset_mode.
+# 2. The reauth flow aborts with reason reauth_successful, but no
+#    config.abort.reauth_successful string existed, so the user saw
+#    an abort dialog with no message.
+
+
+def test_climate_declares_preset_mode_support():
+    """supported_features must be TARGET_TEMPERATURE plus PRESET_MODE."""
+    assert WattsClimate._attr_supported_features == (
+        _ClimateEntityFeature.TARGET_TEMPERATURE
+        | _ClimateEntityFeature.PRESET_MODE
+    )
+
+
+def test_reauth_successful_abort_string_present():
+    """Both string files must carry the exact reauth_successful abort text."""
+    for path in (COMP / "strings.json", COMP / "translations" / "en.json"):
+        data = json.loads(path.read_text())
+        assert (
+            data["config"]["abort"]["reauth_successful"]
+            == "Re-authentication was successful."
+        )
