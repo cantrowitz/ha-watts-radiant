@@ -94,10 +94,10 @@ def _device(**overrides):
     data.update(overrides.pop("data", {}))
     entry = {
         "deviceId": "fake-device",
-        "name": "main bathroom",
+        "name": "Bathroom 1",
         "modelNumber": "SunstatGen4",
         "isConnected": True,
-        "location": {"locationId": "fake-location", "name": "801"},
+        "location": {"locationId": "fake-location", "name": "Home"},
         "data": data,
     }
     entry.update(overrides)
@@ -119,7 +119,7 @@ def test_current_temperature_follows_target_sensor():
         device_id="x",
         name="x",
         location_id="loc",
-        location_name="801",
+        location_name="Home",
         floor_temp=77,
         room_temp=80,
         target_sensor="Room",
@@ -130,10 +130,10 @@ def test_current_temperature_follows_target_sensor():
 def test_hvac_action_and_away_mapping():
     assert _device().hvac_action == "idle"  # Heat mode, Op Off
     assert parse_location(
-        {"locationId": "x", "name": "801", "awayState": 0}
+        {"locationId": "x", "name": "Home", "awayState": 0}
     ).home_away == "Home"
     assert parse_location(
-        {"locationId": "x", "name": "801", "awayState": 1}
+        {"locationId": "x", "name": "Home", "awayState": 1}
     ).home_away == "Away"
 
 def test_manifest_is_hassfest_clean():

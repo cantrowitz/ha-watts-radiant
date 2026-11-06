@@ -3,7 +3,7 @@
 DOMAIN = "watts_radiant"
 PLATFORMS: list[str] = ["climate", "sensor", "switch"]
 
-# Azure AD B2C (Watts Home app, com.watts.home) — from Adam's login capture.
+# Azure AD B2C (Watts Home app, com.watts.home) — from the app's login flow.
 # These are the app's public OAuth client parameters, not user credentials.
 # The per-session values (code_challenge, state, csrf, transId) are generated
 # fresh on every login and are never stored here.

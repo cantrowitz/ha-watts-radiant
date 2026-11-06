@@ -1,6 +1,6 @@
 """Watts Home auth + API client.
 
-Auth — Azure AD B2C, authorization code + PKCE, from Adam's captures.
+Auth — Azure AD B2C, authorization code + PKCE, from app captures.
 Auth requests run over curl_cffi, NOT aiohttp: the B2C gateway
 rejects aiohttp's SelfAsserted POST (VM HTTP 400, HA cannot_connect),
 while the identical flow over libcurl succeeded live Oct 28, 2026.
@@ -27,7 +27,7 @@ The home.watts.com API stays on aiohttp.
    whose link href is the msal://auth URL, URL-encoded, carrying
    state, trustFrameworkPolicy, client_info and code. The code is
    parsed from that href, not from a Location header. (Confirmed
-   by Adam's capture, Oct 28, 2026.)
+   by capture, Oct 28, 2026.)
 4. POST {authority}/oauth2/v2.0/token with grant_type=
    authorization_code, code, code_verifier, client_id, scope and
    redirect_uri. Returns access_token (900s), refresh_token (90d),
@@ -39,7 +39,7 @@ The home.watts.com API stays on aiohttp.
 API — https://home.watts.com/api, header Api-Version: 2.0,
 Authorization: Bearer <access_token>:
   GET User/Details  — default location + defaultLocationDevices
-  GET Location      — locations, for grouping ("801")
+  GET Location      — locations, for grouping ("Home")
   GET Location/{id}/Devices — full thermostat state per device
 
 No credentials, tokens, cookies, or per-session values are stored
@@ -144,7 +144,7 @@ def generate_pkce() -> PkcePair:
 
 # The Watts Home app is an Android WebView (MSAL Xamarin). B2C
 # serves the same page regardless of UA, but the SelfAsserted
-# sign-in — the endpoint Adam warned is the key one, not the
+# sign-in — the key endpoint, not the
 # authorize page HTML — is sent by that WebView, so send its
 # headers too: Origin/Referer on the POST, and the app's
 # x-client-* params on the authorize URL.
@@ -154,8 +154,8 @@ APP_USER_AGENT = (
     "(KHTML, like Gecko) Version/4.0 Chrome/145.0.7632.218 "
     "Mobile Safari/537.36"
 )
-# WebView client-hint / fetch headers, as in Adam's SelfAsserted
-# and confirmed captures (Oct 28, 2026).
+# WebView client-hint / fetch headers, as in the captured
+# SelfAsserted requests (Oct 28, 2026).
 APP_SEC_CH_UA = '"Not:A-Brand";v="99", "Android WebView";v="145", "Chromium";v="145"'
 APP_FETCH_XHR = {
     "sec-ch-ua": APP_SEC_CH_UA,
@@ -508,7 +508,7 @@ def temp_settings_payload(temperature: float, schedule_enabled: bool) -> dict:
     """Settings payload for a temperature set.
 
     Schedule on -> HeatHold; schedule off -> Heat.
-    Both verified live from Adam's captures Oct 28, 2026.
+    Both verified live from app captures Oct 28, 2026.
     """
     value = int(round(temperature))
     key = "HeatHold" if schedule_enabled else "Heat"
@@ -560,7 +560,7 @@ class WattsApiClient:
     async def set_device_mode(self, device_id: str, mode: str) -> dict:
         """PATCH /Device/{id} Settings.Mode — mode is "Off" or "Heat".
 
-        Both directions verified from Adam's captures Oct 28, 2026:
+        Both directions verified from app captures Oct 28, 2026:
         Mode Off -> Target Active 0 / Heat null; Mode Heat is the
         symmetric payload. No other Settings fields are sent here.
         """
@@ -574,7 +574,7 @@ class WattsApiClient:
     ) -> dict:
         """PATCH /Device/{id} Settings to set the heat target.
 
-        Verified from Adam's captures Oct 28, 2026: schedule on ->
+        Verified from app captures Oct 28, 2026: schedule on ->
         {"Settings": {"HeatHold": 66}}; schedule off ->
         {"Settings": {"Heat": 84}}.
         """
@@ -585,7 +585,7 @@ class WattsApiClient:
     async def cancel_device_hold(self, device_id: str) -> dict:
         """PATCH /Device/{id} Settings.HeatHold = null: cancel override.
 
-        Verified from Adam's capture Oct 28, 2026 ("canceling
+        Verified from app capture Oct 28, 2026 ("canceling
         override"): {"Settings": {"HeatHold": null}}. After this,
         the thermostat returns to Following Schedule.
         """
@@ -595,7 +595,7 @@ class WattsApiClient:
     async def set_schedule_enabled(self, device_id: str, enabled: bool) -> dict:
         """PATCH /Device/{id} Settings.SchedEnable — "On" or "Off".
 
-        Verified from Adam's capture Oct 28, 2026:
+        Verified from app capture Oct 28, 2026:
         {"Settings": {"SchedEnable": "Off"}} turns the schedule off
         (the schedule-setting payload also carries SchedEnable "On").
         """

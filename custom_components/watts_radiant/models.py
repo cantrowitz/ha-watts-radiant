@@ -1,7 +1,7 @@
 """Pure data models for Watts Radiant — no Home Assistant imports.
 
 This module is deliberately testable without HA installed, so the
-mapping from the Watts API (and from Adam's app screenshot) to HA
+mapping from the Watts API (and from the app screenshot) to HA
 concepts can be verified offline with synthetic fixtures.
 """
 
@@ -20,7 +20,7 @@ class WattsLocation:
 
     @property
     def home_away(self) -> str:
-        """awayState 0 is Home (Adam's reading, Oct 28, 2026)."""
+        """awayState 0 is Home (verified from the app, Oct 28, 2026)."""
         return "Home" if self.away_state == 0 else "Away"
 
 
@@ -63,8 +63,7 @@ class WattsDevice:
     def current_temperature(self) -> float | None:
         """Current temperature shown in the app: the floor sensor.
 
-        The app's device cards lead with "Floor: XX°F" (Adam's
-        screenshot: main bathroom Floor 76°F, second bathroom
+        The app's device cards lead with "Floor: XX°F" (e.g. Bathroom 1 Floor 76°F, Bathroom 2
         Floor 80°F), and Target.Sensor is "Floor" on both devices.
         The room sensor is exposed separately, not as the primary.
         """
@@ -86,7 +85,7 @@ class WattsDevice:
     def hvac_action(self) -> str | None:
         """HA hvac action: Op Heat AND current below target.
 
-        Paired on/off captures Oct 29, 2026 (main bathroom,
+        Paired on/off captures Oct 29, 2026 (Bathroom 1,
         37 seconds apart) prove Op alone cannot distinguish:
         Op was "Heat", Mode.Active 1, Sub "None", sensors,
         schedule and energy all identical in both — the only

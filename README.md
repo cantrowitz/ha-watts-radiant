@@ -19,7 +19,7 @@ Bluetooth bridges required.
 - **Native UI Config Flow**: Log in directly with your Watts Home credentials
   from *Settings > Devices & Services*.
 - **Automatic Location Discovery**: Automatically detects your Watts location
-  (e.g. *801*) and its thermostats, grouped under that location.
+  (e.g. *Home*) and its thermostats, grouped under that location.
 - **Climate Control**:
   - **Thermostat** (`climate.<thermostat_name>`): Mode Off / Heat, target
     temperature, current temperature following the thermostat's target

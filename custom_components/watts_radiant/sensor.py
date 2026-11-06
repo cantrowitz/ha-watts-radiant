@@ -48,9 +48,9 @@ class WattsHomeAwaySensor(CoordinatorEntity[WattsCoordinator], SensorEntity):
     mode, while "Home/away" matches the Watts term and its
     own values exactly. No location prefix: the device
     already identifies the location, and a hardcoded API
-    name (e.g. "801") goes stale when the device is renamed
-    in HA (e.g. to "Powerhouse"), which is exactly what
-    happened with "801 home/away" vs "Powerhouse Away".
+    name goes stale when the device is renamed in HA — the
+    location was renamed after setup here, and the old
+    prefixed name went stale with it.
     """
 
     def __init__(self, coordinator: WattsCoordinator, location_id: str) -> None:

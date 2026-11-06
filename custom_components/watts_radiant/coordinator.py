@@ -29,7 +29,7 @@ class WattsCoordinator(DataUpdateCoordinator[dict[str, WattsDevice]]):
         # survive a Home Assistant restart.
         self.entry = entry
         self._tokens = None
-        self.location_name = "801"
+        self.location_name = "Home"
         self.locations: dict[str, WattsLocation] = {}
         # HA device-registry IDs of location parent devices, filled
         # in by async_setup_entry before platforms load.

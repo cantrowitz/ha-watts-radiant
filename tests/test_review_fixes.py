@@ -552,13 +552,13 @@ def test_switch_setup_creates_no_away_switch():
     hass = _FakeHass()
     device = SimpleNamespace(
         device_id="dev1",
-        name="main bathroom",
+        name="Bathroom 1",
         model_number="SunstatGen4",
         location_id="loc1",
     )
     coordinator = SimpleNamespace(
         data={"dev1": device},
-        locations={"loc1": SimpleNamespace(name="801", location_id="loc1")},
+        locations={"loc1": SimpleNamespace(name="Home", location_id="loc1")},
         location_device_ids={},
     )
     hass.data = {"watts_radiant": {"e1": coordinator}}

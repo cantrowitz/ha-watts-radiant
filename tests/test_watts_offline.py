@@ -1,8 +1,8 @@
 """Offline tests for Watts mapping — synthetic fixtures only.
 
 No real account IDs, tokens, or credentials appear here. The fixture
-shapes mirror Adam's captured Location/Devices responses and his app
-screenshot: main bathroom floor 76°F / target 80°F / heating, second
+shapes mirror captured Location/Devices responses and the app
+screenshot: Bathroom 1 floor 76°F / target 80°F / heating, second
 bathroom floor 80°F / target 65°F / mode Heat but not heating.
 """
 
@@ -35,7 +35,7 @@ def _fixture(name, floor, room, op, target):
         "name": name,
         "modelNumber": "SunstatGen4",
         "isConnected": True,
-        "location": {"locationId": "fake-location", "name": "801"},
+        "location": {"locationId": "fake-location", "name": "Home"},
         "data": {
             "Sensors": {
                 "Room": {"Val": room, "Status": "Okay"},
@@ -58,8 +58,8 @@ def _fixture(name, floor, room, op, target):
     }
 
 
-def test_main_bathroom_is_heating_with_floor_as_current():
-    device = parse_device(_fixture("main bathroom", 76, 84, "Heat", 80))
+def test_bathroom_1_is_heating_with_floor_as_current():
+    device = parse_device(_fixture("Bathroom 1", 76, 84, "Heat", 80))
     assert device.current_temperature == 76
     assert device.room_temp == 84
     assert device.hvac_mode == "heat"
@@ -67,8 +67,8 @@ def test_main_bathroom_is_heating_with_floor_as_current():
     assert device.target_heat == 80
 
 
-def test_second_bathroom_is_idle_when_floor_above_target():
-    device = parse_device(_fixture("second bathroom", 80, 78, "Off", 65))
+def test_bathroom_2_is_idle_when_floor_above_target():
+    device = parse_device(_fixture("Bathroom 2", 80, 78, "Off", 65))
     assert device.current_temperature == 80
     assert device.hvac_mode == "heat"
     # Mode is Heat, but State.Op is Off: the app shows "Heat | 65°F",
@@ -107,7 +107,7 @@ def test_confirmed_url_has_no_tfp_and_parses_object_moved():
     assert "/tfp/" not in url
     assert "/api/CombinedSigninAndSignup/confirmed" in url
     assert "rememberMe=false" in url
-    # Shape of Adam's capture: href is the whole msal URL, URL-encoded.
+    # Shape of the capture: href is the whole msal URL, URL-encoded.
     html = (
         '<html><body><h2>Object moved to '
         '<a href="msal00000000-0000-0000-0000-000000000000%3a%2f%2fauth%2f'
@@ -117,23 +117,23 @@ def test_confirmed_url_has_no_tfp_and_parses_object_moved():
 
 
 def test_home_away():
-    assert parse_location({"locationId": "x", "name": "801", "awayState": 0}).home_away == "Home"
-    assert parse_location({"locationId": "x", "name": "801", "awayState": 1}).home_away == "Away"
+    assert parse_location({"locationId": "x", "name": "Home", "awayState": 0}).home_away == "Home"
+    assert parse_location({"locationId": "x", "name": "Home", "awayState": 1}).home_away == "Away"
 
 
 def test_parse_device_location_override_wins():
     # Coordinator passes the endpoint's location, which must win
     # over a missing/wrong location object in the device entry —
     # this is what the child-device parent link relies on.
-    entry = _fixture("main bathroom", 76, 84, "Heat", 80)
+    entry = _fixture("Bathroom 1", 76, 84, "Heat", 80)
     entry.pop("location", None)
-    device = parse_device(entry, location_id="loc-123", location_name="801")
+    device = parse_device(entry, location_id="loc-123", location_name="Home")
     assert device.location_id == "loc-123"
-    assert device.location_name == "801"
+    assert device.location_name == "Home"
 
 
 def test_mode_off_parses_to_null_target():
-    entry = _fixture("main bathroom", 77, 81, "Heat", 65)
+    entry = _fixture("Bathroom 1", 77, 81, "Heat", 65)
     entry["data"]["Mode"]["Val"] = "Off"
     entry["data"]["Target"]["Active"] = 0
     entry["data"]["Target"]["Heat"] = None
@@ -151,7 +151,7 @@ def test_temp_settings_payload():
 
 
 def test_hold_parsing():
-    entry = _fixture("main bathroom", 77, 81, "Heat", 65)
+    entry = _fixture("Bathroom 1", 77, 81, "Heat", 65)
     assert parse_device(entry).hold_active is False
     entry["data"]["Target"]["Hold"] = 1
     assert parse_device(entry).hold_active is True
@@ -160,7 +160,7 @@ def test_hold_parsing():
 def test_schedule_parsing_and_heat_payload():
     from watts_radiant.api import temp_settings_payload
 
-    entry = _fixture("main bathroom", 77, 81, "Heat", 79)
+    entry = _fixture("Bathroom 1", 77, 81, "Heat", 79)
     entry["data"]["Schedule"] = {"Grp1": {"S": {"T": "23:50", "H": 79}}}
     device = parse_device(entry)
     assert device.schedule_enabled is True
@@ -173,9 +173,9 @@ def test_heating_requires_op_and_current_below_target():
     # Paired on/off captures Oct 29, 2026: Op Heat in both,
     # floor 77, target 78 => heating, target 76 => idle.
     # Op alone cannot distinguish; the temp comparison can.
-    entry = _fixture("main bathroom", 77, 84, "Heat", 78)
+    entry = _fixture("Bathroom 1", 77, 84, "Heat", 78)
     assert parse_device(entry).hvac_action == "heating"
-    entry = _fixture("main bathroom", 77, 84, "Heat", 76)
+    entry = _fixture("Bathroom 1", 77, 84, "Heat", 76)
     assert parse_device(entry).hvac_action == "idle"
-    entry = _fixture("second bathroom", 80, 78, "Off", 65)
+    entry = _fixture("Bathroom 2", 80, 78, "Off", 65)
     assert parse_device(entry).hvac_action == "idle"
