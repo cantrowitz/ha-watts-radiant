@@ -1,12 +1,20 @@
 """No personal data may ship in this repo.
 
 Added 2026-11-05, after an audit found real home details in the
-first public releases — a unit number, thermostat room names, and
-a building name, all sitting in comments and test fixtures since
-the first commit. This test scans every text file in the repo for
-the same classes of data and fails the suite if any of it comes
-back, so a future commit cannot reintroduce it unnoticed. It runs
-in CI on every push (see .github/workflows/tests.yml).
+first public releases. This test scans every text file in the repo
+for generic classes of personal data — credential-shaped values,
+private addresses, identifiers — and fails the suite if any of it
+comes back, so a future commit cannot reintroduce it unnoticed.
+It runs in CI on every push (see .github/workflows/tests.yml).
+
+Deliberately generic: this file contains NO real personal values
+at all. The specific values from the audit (names, unit/building/
+room names, addresses, serials) are NOT listed here — they live
+only in the PII_DENYLIST repository secret, checked by
+.github/workflows/pii-denylist.yml, which also runs in CI on
+every push. Nothing in this file can leak anything about the
+author, because nothing real is written in it. Every sample below
+is invented.
 
 Allowlisted on purpose — public by design, not personal:
 - the LICENSE copyright line, which names the author;
@@ -18,10 +26,6 @@ Allowlisted on purpose — public by design, not personal:
 - synthetic test placeholders (example-domain addresses, the
   all-zero UUID);
 - the brand icon filename, which merely looks like an address.
-
-The patterns that would match their own source text are assembled
-from parts below, and so are the bad samples in the test — otherwise
-this file would flag itself.
 """
 
 import re
@@ -34,38 +38,16 @@ ROOT = Path(__file__).resolve().parents[1]
 SKIP_DIRS = {".git", "__pycache__", ".venv", ".pytest_cache"}
 SKIP_SUFFIXES = {".pyc", ".png", ".jpg", ".jpeg", ".gif", ".zip", ".ico"}
 
-
-def _rx(*parts, flags=0):
-    """Assemble a pattern from parts, so a pattern that would match
-    its own source text never appears as a literal in this file."""
-    return re.compile("".join(parts), flags)
-
-
-# (label, pattern) — every entry is a class of data the 2026-11-05
-# audit actually found in the public tree, or a credential-shaped
-# value that must never be committed.
+# Generic shapes only — no real value is named anywhere in this file.
 PATTERNS = [
     ("email address", re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")),
-    ("first name", _rx(r"\b", "Ad", "am", r"\b")),
-    ("surname", _rx(r"\b", "Cantrow", "itz", r"\b")),
-    ("unit number", _rx(r"\b", "80", "1", r"\b")),
-    ("building name", _rx("Power", "house", flags=re.IGNORECASE)),
-    ("room name", _rx("main bath", "room", flags=re.IGNORECASE)),
-    ("room name", _rx("second bath", "room", flags=re.IGNORECASE)),
-    ("remote-access URL", _rx("nabu", r"\.casa")),
-    ("LAN address", _rx(r"\b(?:10\.20|192\.168|172\.16)\.")),
-    ("personal domain", _rx("cantrowitz", r"\.com")),
-    ("street name", _rx("North", "side", flags=re.IGNORECASE)),
-    ("management company", _rx("First", "Service", flags=re.IGNORECASE)),
-    ("street address", _rx("575 Fi", "fth")),
-    ("home coordinates", _rx("40", r"\.74", r"\b")),
-    ("home coordinates", _rx("73", r"\.95", r"\b")),
+    ("private IP address", re.compile(r"\b(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2[0-9]|3[01])\.\d{1,3}\.\d{1,3})\b")),
     ("MAC address", re.compile(r"(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}")),
     ("UUID", re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")),
     ("phone number", re.compile(r"(?<!\d)(?:\+?1[-. ]?)?\(?\d{3}\)?[-. ]\d{3}[-. ]\d{4}(?!\d)")),
     ("secret value", re.compile(r"(?i)(?:password|passwd|api[_-]?key|client[_-]?secret|access[_-]?token|refresh[_-]?token)\s*[:=]\s*[\"'][^\"'\s]{16,}")),
-    ("lock serial", _rx(r"\bT85", r"V[0-9A-Z]{6,}\b")),
-    ("appliance serial", _rx(r"\bMI", r"\d{6}\b")),
+    ("lock serial", re.compile(r"\bT85V[0-9A-Z]{6,}\b")),
+    ("appliance serial", re.compile(r"\bMI\d{6}\b")),
 ]
 
 # Exact matches that are public by design, not personal data.
@@ -81,11 +63,7 @@ def _allowed(path: Path, label: str, match: str) -> bool:
         match.endswith("@example.com") or match.endswith("@example.org")
     ):
         return True
-    if match in ALLOWED_TEXT:
-        return True
-    if label in {"first name", "surname"} and path.name == "LICENSE":
-        return True
-    return False
+    return match in ALLOWED_TEXT
 
 
 def find_hits_text(text: str) -> list[tuple[str, str]]:
@@ -133,21 +111,18 @@ def test_no_personal_data_in_repo():
 
 def _bad(*parts):
     """Assemble a bad sample from parts so the literal never appears
-    in this file (the scan reads this file too)."""
+    in this file (the scan reads this file too). Every sample here is
+    invented — none of it is real data."""
     return "".join(parts)
 
 
 def test_patterns_catch_known_bad_samples():
     bad = [
         _bad("user", "@", "mail", ".com"),
-        _bad("Ad", "am"),
-        _bad("Cantrow", "itz"),
-        _bad("80", "1"),
-        _bad("Power", "house"),
-        _bad("main bath", "room"),
-        _bad("second bath", "room"),
-        _bad("nabu", ".casa"),
         _bad("192.168", ".1.", "1"),
+        _bad("AA", ":", "BB", ":", "CC", ":", "DD", ":", "EE", ":", "FF"),
+        _bad("123e4567", "-", "e89b", "-", "12d3", "-", "a456", "-", "426614174000"),
+        _bad("555", "-", "123", "-", "4567"),
         _bad("T85", "V0FAKE12345"),
         _bad("pass", "word", "=", '"', "ExamplePassword123456"),
     ]
@@ -160,6 +135,8 @@ def test_patterns_allow_known_good_samples():
         "user@example.com",
         "Bathroom 1",
         "Home",
+        "8.8.8.8",
+        "2026.10.4",
         "00000000-0000-0000-0000-000000000000",
         "4b3a6465-94dd-47c2-976c-18bc29c53c2f",
         "icon@2x.png",
