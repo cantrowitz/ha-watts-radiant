@@ -65,6 +65,15 @@ Bluetooth bridges required.
 ### Method 1: Via HACS (Recommended)
 
 1. Open **HACS** in your Home Assistant dashboard.
+2. Go to **Integrations**, click **Explore & Download Repositories**, and search for **Watts Radiant**.
+3. Click **Download**.
+4. Restart Home Assistant.
+
+### Method 2: Via HACS as a custom repository
+
+If the integration does not appear in search yet:
+
+1. Open **HACS** in your Home Assistant dashboard.
 2. Click the three dots in the top-right corner and select **Custom repositories**.
 3. Enter the repository URL:
 
@@ -76,7 +85,7 @@ https://github.com/cantrowitz/ha-watts-radiant
 5. Find **Watts Radiant** in HACS and click **Download**.
 6. Restart Home Assistant.
 
-### Method 2: Manual Installation
+### Method 3: Manual Installation
 
 1. Download the latest release from the Releases page and unzip it
    (release zips contain the integration files at the top level).
