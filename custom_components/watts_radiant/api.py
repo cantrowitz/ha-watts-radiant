@@ -508,7 +508,7 @@ def away_state_payload(away: bool) -> dict:
     """Payload for a location Home/Away set: awayState 1 = Away, 0 = Home.
 
     Shape (bare awayState, no Settings wrapper) comes from another
-    Watts Home implementation, NOT from Adam's captures. Being
+    Watts Home implementation, NOT from app captures. Being
     verified live Nov 22, 2026: flip the Away Mode switch in HA
     and watch the Home/away sensor follow.
     """
@@ -620,7 +620,7 @@ class WattsApiClient:
         """PATCH /Location/{id}/State with awayState 1 = Away, 0 = Home.
 
         Shape (bare awayState, no Settings wrapper) comes from
-        another Watts Home implementation, NOT from Adam's captures
+        another Watts Home implementation, NOT from app captures
         yet — being verified live Nov 22, 2026 by flipping the Away
         Mode switch in HA and watching the Home/away sensor follow.
         """
