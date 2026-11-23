@@ -504,6 +504,17 @@ class WattsAuthClient:
             return Tokens.from_token_response(data)
 
 
+def away_state_payload(away: bool) -> dict:
+    """Payload for a location Home/Away set: awayState 1 = Away, 0 = Home.
+
+    Shape (bare awayState, no Settings wrapper) comes from another
+    Watts Home implementation, NOT from Adam's captures. Being
+    verified live Nov 22, 2026: flip the Away Mode switch in HA
+    and watch the Home/away sensor follow.
+    """
+    return {"awayState": 1 if away else 0}
+
+
 def temp_settings_payload(temperature: float, schedule_enabled: bool) -> dict:
     """Settings payload for a temperature set.
 
@@ -602,6 +613,19 @@ class WattsApiClient:
         data = await self._patch(
             f"/Device/{device_id}",
             {"Settings": {"SchedEnable": "On" if enabled else "Off"}},
+        )
+        return data.get("body", data)
+
+    async def set_location_away_state(self, location_id: str, away: bool) -> dict:
+        """PATCH /Location/{id}/State with awayState 1 = Away, 0 = Home.
+
+        Shape (bare awayState, no Settings wrapper) comes from
+        another Watts Home implementation, NOT from Adam's captures
+        yet — being verified live Nov 22, 2026 by flipping the Away
+        Mode switch in HA and watching the Home/away sensor follow.
+        """
+        data = await self._patch(
+            f"/Location/{location_id}/State", away_state_payload(away)
         )
         return data.get("body", data)
 

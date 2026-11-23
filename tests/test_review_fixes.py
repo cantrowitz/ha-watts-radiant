@@ -4,8 +4,12 @@
    a copy of its data.
 2. A rejected refresh token must raise ConfigEntryAuthFailed (so HA
    starts reauth) and the config flow must offer a reauth step.
-3. The Away Mode switch and its unverified write call must be gone;
-   the read-only Home/Away sensor stays.
+3. The Away Mode switch and its write call were dropped in the
+   review because the endpoint was unverified; they are restored
+   here (Nov 22, 2026) with the inferred endpoint
+   PATCH /Location/{id}/State, verified live by flipping the
+   switch in HA and watching the Home/away sensor follow. The
+   Home/away sensor stays as the explicit label.
 
 The real homeassistant package is not installed here, so the HA
 surface these modules touch is faked with small stand-ins that
@@ -547,8 +551,8 @@ def test_transient_refresh_failure_is_update_failed_not_reauth(monkeypatch):
         raise AssertionError("expected UpdateFailed")
 
 
-def test_switch_setup_creates_no_away_switch():
-    """Only schedule switches remain; the Away Mode switch is gone."""
+def test_switch_setup_creates_schedule_and_away_switches():
+    """Schedule switches (one per thermostat) + Away switch (one per location)."""
     hass = _FakeHass()
     device = SimpleNamespace(
         device_id="dev1",
@@ -570,16 +574,59 @@ def test_switch_setup_creates_no_away_switch():
             added.extend,
         )
     )
-    assert len(added) == 1
-    assert type(added[0]).__name__ == "WattsScheduleSwitch"
-    assert not hasattr(switch_mod, "WattsAwaySwitch")
+    assert len(added) == 2
+    kinds = sorted(type(entity).__name__ for entity in added)
+    assert kinds == ["WattsAwaySwitch", "WattsScheduleSwitch"]
+    away = next(e for e in added if type(e).__name__ == "WattsAwaySwitch")
+    # The HA stub has no Entity.unique_id property, so read the attr.
+    assert away._attr_unique_id == "loc1_away"
 
 
-def test_away_write_call_is_gone():
-    assert not hasattr(WattsApiClient, "set_location_away_state")
-    import watts_radiant.api as api_mod
+class _FakePatchResp:
+    def __init__(self, status=200, body=None):
+        self.status = status
+        self._body = body if body is not None else {}
 
-    assert not hasattr(api_mod, "away_state_payload")
+    async def json(self, content_type=None):
+        return self._body
+
+
+class _FakePatchCtx:
+    def __init__(self, resp):
+        self._resp = resp
+
+    async def __aenter__(self):
+        return self._resp
+
+    async def __aexit__(self, *exc):
+        return False
+
+
+class _FakeApiSession:
+    """Records PATCH calls; enough of aiohttp for WattsApiClient._patch."""
+
+    def __init__(self):
+        self.patches = []
+
+    def patch(self, url, json=None, headers=None):
+        self.patches.append((url, json))
+        return _FakePatchCtx(_FakePatchResp(200, {"body": {}}))
+
+
+def test_away_write_call():
+    """Away write: payload shape + PATCH endpoint for the location."""
+    assert api_mod.away_state_payload(True) == {"awayState": 1}
+    assert api_mod.away_state_payload(False) == {"awayState": 0}
+    assert hasattr(WattsApiClient, "set_location_away_state")
+    session = _FakeApiSession()
+    client = WattsApiClient(session, _new_tokens())
+    _run(client.set_location_away_state("loc1", True))
+    assert len(session.patches) == 1
+    url, payload = session.patches[0]
+    assert url == f"{api_mod.API_BASE}/Location/loc1/State"
+    assert payload == {"awayState": 1}
+    _run(client.set_location_away_state("loc1", False))
+    assert session.patches[-1][1] == {"awayState": 0}
 
 
 # --- Tests for the Nov 5, 2026 HACS review fix (frenck, PR #12915) ---

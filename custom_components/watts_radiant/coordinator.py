@@ -126,6 +126,21 @@ class WattsCoordinator(DataUpdateCoordinator[dict[str, WattsDevice]]):
             await api.set_schedule_enabled(device_id, enabled)
         await self.async_refresh()
 
+    async def async_set_away(self, location_id: str, away: bool) -> None:
+        """Toggle a location's Home/Away state via the API, then re-poll."""
+        session = async_get_clientsession(self.hass)
+        await self._ensure_tokens(session)
+        api = WattsApiClient(session, self._tokens)
+        try:
+            await api.set_location_away_state(location_id, away)
+        except WattsInvalidAuth:
+            auth = WattsAuthClient(session)
+            self._tokens = await auth.refresh(self._tokens.refresh_token)
+            self._persist_tokens()
+            api = WattsApiClient(session, self._tokens)
+            await api.set_location_away_state(location_id, away)
+        await self.async_refresh()
+
     async def _async_update_data(self) -> dict[str, WattsDevice]:
         session = async_get_clientsession(self.hass)
         try:

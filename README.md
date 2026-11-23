@@ -32,8 +32,8 @@ Bluetooth bridges required.
   - **Room temperature** (`sensor.<thermostat_name>_room_temperature`)
 - **Schedule Switch** (`switch.<thermostat_name>_schedule`): Turn a
   thermostat's schedule on or off.
-- **Home/Away** (`sensor.<location_name>_home_away`): The current mode,
-  stated explicitly as *Home* or *Away* (read-only).
+- **Away Mode** (`switch.<location_name>_away_mode`): One toggle per location — on = Away, off = Home. Flips the location's `awayState` (PATCH /Location/{id}/State); the Home/away sensor below states the result.
+- **Home/Away** (`sensor.<location_name>_home_away`): The current mode, stated explicitly as *Home* or *Away*.
 - **Location Grouping**: Thermostats are nested under their location as
   child devices (Home Assistant 2026.9+), so the location's device page
   lists its thermostats as sub-devices.
